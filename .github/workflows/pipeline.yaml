@@ -29,7 +29,7 @@ jobs:
       - name: Deploy CloudFormation
         run: |
           aws cloudformation deploy \
-            --template-file cloudformation/s3-iam.yaml \
+            --template-file cloudformation/s3_iam.yaml \
             --stack-name snowflake-staging \
             --parameter-overrides BucketName=my-unique-sf-bucket-123 \
             --capabilities CAPABILITY_NAMED_IAM
