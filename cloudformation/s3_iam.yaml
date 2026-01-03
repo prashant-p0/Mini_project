@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: S3 bucket and IAM role for Snowflake staging
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Globally unique bucket name
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  SnowflakeAccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SnowflakeS3ReadPolicy
+      Roles: [ !Ref SnowflakeAccessRole ]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:ListBucket
+            Resource:
+              - !Sub arn:aws:s3:::${BucketName}
+              - !Sub arn:aws:s3:::${BucketName}/*
+
+  SnowflakeAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SnowflakeS3ReadRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: "*"   # Replace with specific Snowflake AWS principal or use external ID pattern
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: "REPLACE_WITH_SNOWFLAKE_EXTERNAL_ID"
+
+Outputs:
+  BucketNameOut:
+    Value: !Ref BucketName
+    Description: Staging bucket name
+  RoleArn:
+    Value: !GetAtt SnowflakeAccessRole.Arn
+    Description: IAM Role ARN for Snowflake
