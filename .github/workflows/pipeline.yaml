@@ -1,0 +1,83 @@
+name: Infra and Snowflake CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  infra:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsDeployRole
+          aws-region: ap-south-1
+
+      - name: Validate CloudFormation
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/s3-iam.yaml
+
+      - name: Deploy CloudFormation
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/s3-iam.yaml \
+            --stack-name snowflake-staging \
+            --parameter-overrides BucketName=my-unique-sf-bucket-123 \
+            --capabilities CAPABILITY_NAMED_IAM
+
+  snowflake:
+    runs-on: ubuntu-latest
+    needs: infra
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Snowflake connector
+        run: pip install snowflake-connector-python
+
+      - name: Run Snowflake SQL
+        env:
+          SNOW_ACCOUNT: ${{ secrets.SNOW_ACCOUNT }}
+          SNOW_USER: ${{ secrets.SNOW_USER }}
+          SNOW_PASSWORD: ${{ secrets.SNOW_PASSWORD }}
+          SNOW_ROLE: ${{ secrets.SNOW_ROLE }}
+        run: |
+          python - <<'PY'
+          import os
+          import snowflake.connector
+
+          conn = snowflake.connector.connect(
+            account=os.environ['SNOW_ACCOUNT'],
+            user=os.environ['SNOW_USER'],
+            password=os.environ['SNOW_PASSWORD'],
+            role=os.environ['SNOW_ROLE'],
+            warehouse='DEMO_WH'
+          )
+          cs = conn.cursor()
+          def run_file(path):
+            with open(path, 'r') as f:
+              sql = f.read()
+            for stmt in [s.strip() for s in sql.split(';') if s.strip()]:
+              cs.execute(stmt)
+
+          run_file('snowflake/01_setup.sql')
+          run_file('snowflake/02_tables.sql')
+          run_file('snowflake/03_views.sql')
+          # Optional: load via internal stage if file uploaded manually; or skip in CI
+          # run_file('snowflake/04_copy.sql')
+          cs.close(); conn.close()
+          PY
